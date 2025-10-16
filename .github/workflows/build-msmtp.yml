@@ -5,7 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:  # Permite rulare manuală
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,64 +15,68 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
     
-    - name: Install build dependencies
+    - name: Build static msmtp with Alpine Linux
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          wget \
-          libgnutls28-dev \
-          libgsasl7-dev \
-          libidn2-dev \
-          gettext \
-          autoconf \
-          automake
+        docker run --rm -v "$PWD:/workspace" alpine:latest sh -c '
+          # Install build dependencies
+          apk add --no-cache \
+            gcc \
+            musl-dev \
+            make \
+            wget \
+            tar \
+            xz \
+            gettext-dev \
+            gnutls-dev \
+            gnutls-static \
+            libgsasl-dev \
+            libgsasl-static \
+            libidn2-dev \
+            libidn2-static \
+            zlib-static
+          
+          # Download and extract msmtp
+          cd /tmp
+          wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
+          tar xf msmtp-1.8.25.tar.xz
+          cd msmtp-1.8.25
+          
+          # Configure and build static
+          CFLAGS="-static -Os" \
+          LDFLAGS="-static -s" \
+          ./configure \
+            --prefix=/usr \
+            --sysconfdir=/etc \
+            --with-tls=gnutls \
+            --disable-shared \
+            --enable-static
+          
+          make -j$(nproc)
+          strip --strip-all src/msmtp
+          
+          # Verify binary
+          echo "=== Binary Info ==="
+          ls -lh src/msmtp
+          file src/msmtp
+          ldd src/msmtp 2>&1 || echo "✅ Static binary confirmed!"
+          ./src/msmtp --version
+          
+          # Copy to workspace
+          cp src/msmtp /workspace/msmtp-linux-static
+        '
     
-    - name: Download msmtp source
+    - name: Generate SHA256
       run: |
-        cd /tmp
-        wget https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
-        tar xf msmtp-1.8.25.tar.xz
-        cd msmtp-1.8.25
-        ls -la
-    
-    - name: Build static msmtp
-      run: |
-        cd /tmp/msmtp-1.8.25
-        CFLAGS="-static -Os" \
-        LDFLAGS="-static -s" \
-        ./configure \
-          --prefix=/usr \
-          --sysconfdir=/etc \
-          --with-tls=gnutls \
-          --disable-shared \
-          --enable-static
-        make -j$(nproc)
-        strip --strip-all src/msmtp
-        
-    - name: Verify binary
-      run: |
-        cd /tmp/msmtp-1.8.25/src
-        ls -lh msmtp
-        file msmtp
-        ldd msmtp || echo "Static binary - no dynamic dependencies!"
-        ./msmtp --version
-    
-    - name: Prepare artifact
-      run: |
-        mkdir -p artifact
-        cp /tmp/msmtp-1.8.25/src/msmtp artifact/msmtp-linux-static
-        cd artifact
         sha256sum msmtp-linux-static > msmtp-linux-static.sha256
-        ls -lh
+        cat msmtp-linux-static.sha256
     
     - name: Upload binary as artifact
       uses: actions/upload-artifact@v3
       with:
         name: msmtp-linux-static
         path: |
-          artifact/msmtp-linux-static
-          artifact/msmtp-linux-static.sha256
+          msmtp-linux-static
+          msmtp-linux-static.sha256
         retention-days: 90
     
     - name: Create Release (on tag)
@@ -80,7 +84,20 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifact/msmtp-linux-static
-          artifact/msmtp-linux-static.sha256
+          msmtp-linux-static
+          msmtp-linux-static.sha256
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+**5️⃣ Click "Commit changes"** (verde, sus-dreapta)
+
+**6️⃣ Click "Commit changes"** din popup
+
+---
+
+## ✅ Build-ul va Porni Automat!
+
+După commit, mergi la:
+```
+https://github.com/me-suzy/msmtp-builder/actions
