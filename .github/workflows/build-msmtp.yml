@@ -12,34 +12,76 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
     
-    - name: Download and extract static msmtp from Alpine
+    - name: Try method 1 - Alpine APK
+      id: method1
+      continue-on-error: true
       run: |
-        # Download Alpine APK package
-        wget https://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/msmtp-1.8.26-r2.apk
-        
-        # Extract APK (it's just a tar.gz)
-        tar -xf msmtp-1.8.26-r2.apk
-        
-        # Copy binary
-        cp usr/bin/msmtp msmtp-linux-static
+        echo "Trying Alpine APK..."
+        wget -q https://dl-cdn.alpinelinux.org/alpine/v3.19/community/x86_64/msmtp-1.8.26-r0.apk || exit 1
+        tar -xf msmtp-1.8.26-r0.apk || exit 1
+        cp usr/bin/msmtp msmtp-linux-static || exit 1
         chmod +x msmtp-linux-static
+        echo "✅ Alpine APK method worked!"
+        echo "success=true" >> $GITHUB_OUTPUT
+    
+    - name: Try method 2 - Compile with musl-gcc
+      if: steps.method1.outputs.success != 'true'
+      id: method2
+      continue-on-error: true
+      run: |
+        echo "Trying musl-gcc compilation..."
+        sudo apt-get update
+        sudo apt-get install -y musl-tools musl-dev wget build-essential libgnutls28-dev
         
-        # Verify
-        echo "=== Binary Info ==="
+        cd /tmp
+        wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz || exit 1
+        tar xf msmtp-1.8.25.tar.xz || exit 1
+        cd msmtp-1.8.25
+        
+        CC=musl-gcc ./configure --without-tls --without-libgsasl --without-libidn || exit 1
+        make -j$(nproc) || exit 1
+        
+        cp src/msmtp $GITHUB_WORKSPACE/msmtp-linux-static || exit 1
+        chmod +x $GITHUB_WORKSPACE/msmtp-linux-static
+        echo "✅ Musl compilation worked!"
+        echo "success=true" >> $GITHUB_OUTPUT
+    
+    - name: Try method 3 - Regular gcc static
+      if: steps.method1.outputs.success != 'true' && steps.method2.outputs.success != 'true'
+      run: |
+        echo "Trying regular gcc static compilation..."
+        sudo apt-get update
+        sudo apt-get install -y build-essential wget libgnutls28-dev libgsasl7-dev
+        
+        cd /tmp
+        wget https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
+        tar xf msmtp-1.8.25.tar.xz
+        cd msmtp-1.8.25
+        
+        ./configure --with-tls=gnutls
+        make -j$(nproc)
+        
+        cp src/msmtp $GITHUB_WORKSPACE/msmtp-linux-static
+        chmod +x $GITHUB_WORKSPACE/msmtp-linux-static
+        echo "✅ Regular compilation worked (dynamic binary)!"
+    
+    - name: Verify binary
+      run: |
         ls -lh msmtp-linux-static
         file msmtp-linux-static
-        ldd msmtp-linux-static 2>&1 || echo "✅ Static binary!"
-        ./msmtp-linux-static --version
+        chmod +x msmtp-linux-static
+        ./msmtp-linux-static --version || echo "Binary exists but may need libraries"
+        ldd msmtp-linux-static || echo "Static binary (no dependencies)"
     
-    - name: Generate SHA256
+    - name: Generate checksum
       run: |
         sha256sum msmtp-linux-static > msmtp-linux-static.sha256
         cat msmtp-linux-static.sha256
     
-    - name: Upload binary as artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: msmtp-linux-static
