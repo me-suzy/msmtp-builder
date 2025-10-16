@@ -1,0 +1,68 @@
+#!/bin/bash
+# msmtp wrapper simplu - foloseste sendmail existent
+# Pentru server foarte vechi
+
+# Configurare
+GMAIL="bib.ass@gmail.com"
+
+# Parse args simple
+TO=""
+VERBOSE=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --version)
+            echo "msmtp 1.0 simple wrapper"
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            shift
+            ;;
+        -t)
+            shift
+            ;;
+        -*)
+            shift
+            ;;
+        *)
+            TO="$1"
+            shift
+            ;;
+    esac
+done
+
+# Citeste mesaj
+MSG=$(cat)
+
+# Extrage TO din headers daca nu e specificat
+if [ -z "$TO" ]; then
+    TO=$(echo "$MSG" | grep -i "^To:" | head -1 | sed 's/^To: *//i')
+fi
+
+if [ -z "$TO" ]; then
+    echo "Error: No recipient" >&2
+    exit 1
+fi
+
+# Salveaza in fisier temporar
+TMPFILE="/tmp/msg.$$"
+echo "$MSG" > "$TMPFILE"
+
+# Foloseste sendmail original (daca merge)
+if [ -f /usr/sbin/sendmail.sendmail ]; then
+    /usr/sbin/sendmail.sendmail "$TO" < "$TMPFILE" 2>&1
+    RES=$?
+elif [ -f /usr/sbin/sendmail.postfix ]; then
+    /usr/sbin/sendmail.postfix "$TO" < "$TMPFILE" 2>&1
+    RES=$?
+else
+    # Fallback - pune in coada locala
+    /bin/mail -s "Fwd via msmtp" "$TO" < "$TMPFILE" 2>&1
+    RES=$?
+fi
+
+rm -f "$TMPFILE"
+
+[ "$VERBOSE" -eq 1 ] && echo "Message queued/sent (exit $RES)" >&2
+exit $RES
