@@ -1,85 +1,86 @@
 name: Build Static msmtp Binary
 
 on:
+  workflow_dispatch:  # Permite rulare manuală
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Folosim versiunea LTS stabilă
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
-    - name: Build static msmtp with Alpine Linux
+    - name: Install build dependencies
       run: |
-        docker run --rm -v "$PWD:/workspace" alpine:latest sh -c "
-          apk add --no-cache \
-            gcc \
-            musl-dev \
-            make \
-            wget \
-            tar \
-            xz \
-            gettext-dev \
-            gnutls-dev \
-            gnutls-static \
-            libgsasl-dev \
-            libgsasl-static \
-            libidn2-dev \
-            libidn2-static \
-            zlib-static
-          
-          cd /tmp
-          wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
-          tar xf msmtp-1.8.25.tar.xz
-          cd msmtp-1.8.25
-          
-          CFLAGS='-static -Os' \
-          LDFLAGS='-static -s' \
-          ./configure \
-            --prefix=/usr \
-            --sysconfdir=/etc \
-            --with-tls=gnutls \
-            --disable-shared \
-            --enable-static
-          
-          make -j\$(nproc)
-          strip --strip-all src/msmtp
-          
-          echo '=== Binary Info ==='
-          ls -lh src/msmtp
-          file src/msmtp
-          ldd src/msmtp 2>&1 || echo 'Static binary confirmed!'
-          ./src/msmtp --version
-          
-          cp src/msmtp /workspace/msmtp-linux-static
-        "
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          wget \
+          libgnutls28-dev \
+          libgsasl7-dev \
+          libidn2-dev \
+          gettext \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config
     
-    - name: Generate SHA256
+    - name: Download and extract msmtp source
       run: |
+        cd /tmp
+        wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
+        tar xf msmtp-1.8.25.tar.xz
+        cd msmtp-1.8.25
+        ls -la
+    
+    - name: Configure and build static msmtp
+      run: |
+        cd /tmp/msmtp-1.8.25
+        
+        # Configure pentru build static
+        ./configure \
+          --prefix=/usr \
+          --sysconfdir=/etc \
+          --with-tls=gnutls \
+          --disable-shared \
+          --enable-static \
+          CFLAGS="-static -Os" \
+          LDFLAGS="-static -s"
+        
+        # Build
+        make -j$(nproc)
+        
+        # Strip symbols pentru dimensiune mai mică
+        strip --strip-all src/msmtp
+        
+    - name: Verify binary
+      run: |
+        cd /tmp/msmtp-1.8.25/src
+        ls -lh msmtp
+        file msmtp
+        echo "Testing ldd (should show 'not a dynamic executable'):"
+        ldd msmtp || echo "✅ Static binary - no dynamic dependencies!"
+        echo "Testing version:"
+        ./msmtp --version
+    
+    - name: Prepare artifact
+      run: |
+        mkdir -p artifact
+        cp /tmp/msmtp-1.8.25/src/msmtp artifact/msmtp-linux-static
+        cd artifact
         sha256sum msmtp-linux-static > msmtp-linux-static.sha256
-        cat msmtp-linux-static.sha256
+        ls -lh
+        echo "Binary info:"
+        file msmtp-linux-static
     
     - name: Upload binary as artifact
       uses: actions/upload-artifact@v4
       with:
         name: msmtp-linux-static
         path: |
-          msmtp-linux-static
-          msmtp-linux-static.sha256
+          artifact/msmtp-linux-static
+          artifact/msmtp-linux-static.sha256
         retention-days: 90
-    
-    - name: Create Release (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          msmtp-linux-static
-          msmtp-linux-static.sha256
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
