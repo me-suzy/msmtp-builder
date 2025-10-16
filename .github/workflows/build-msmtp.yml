@@ -1,70 +1,41 @@
 name: Build Static msmtp Binary
 
 on:
-  workflow_dispatch:  # Permite rulare manuală
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # Folosim versiunea LTS stabilă
+    runs-on: ubuntu-22.04
     
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
     
-    - name: Install build dependencies
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          wget \
-          libgnutls28-dev \
-          libgsasl7-dev \
-          libidn2-dev \
-          gettext \
-          autoconf \
-          automake \
-          libtool \
-          pkg-config
+        sudo apt-get install -y build-essential wget libgnutls28-dev libgsasl7-dev libidn2-dev gettext autoconf automake libtool pkg-config
     
-    - name: Download and extract msmtp source
+    - name: Download msmtp source
       run: |
         cd /tmp
-        wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
+        wget https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
         tar xf msmtp-1.8.25.tar.xz
         cd msmtp-1.8.25
-        ls -la
     
-    - name: Configure and build static msmtp
+    - name: Build static binary
       run: |
         cd /tmp/msmtp-1.8.25
-        
-        # Configure pentru build static
-        ./configure \
-          --prefix=/usr \
-          --sysconfdir=/etc \
-          --with-tls=gnutls \
-          --disable-shared \
-          --enable-static \
-          CFLAGS="-static -Os" \
-          LDFLAGS="-static -s"
-        
-        # Build
+        ./configure --prefix=/usr --sysconfdir=/etc --with-tls=gnutls --disable-shared --enable-static CFLAGS="-static -Os" LDFLAGS="-static -s"
         make -j$(nproc)
-        
-        # Strip symbols pentru dimensiune mai mică
         strip --strip-all src/msmtp
-        
-    - name: Verify binary
+    
+    - name: Test binary
       run: |
         cd /tmp/msmtp-1.8.25/src
-        ls -lh msmtp
-        file msmtp
-        echo "Testing ldd (should show 'not a dynamic executable'):"
-        ldd msmtp || echo "✅ Static binary - no dynamic dependencies!"
-        echo "Testing version:"
         ./msmtp --version
+        file msmtp
+        ldd msmtp || echo "Static binary - no dynamic dependencies"
     
     - name: Prepare artifact
       run: |
@@ -73,10 +44,8 @@ jobs:
         cd artifact
         sha256sum msmtp-linux-static > msmtp-linux-static.sha256
         ls -lh
-        echo "Binary info:"
-        file msmtp-linux-static
     
-    - name: Upload binary as artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: msmtp-linux-static
