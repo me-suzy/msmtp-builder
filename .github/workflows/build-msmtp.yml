@@ -17,8 +17,7 @@ jobs:
     
     - name: Build static msmtp with Alpine Linux
       run: |
-        docker run --rm -v "$PWD:/workspace" alpine:latest sh -c '
-          # Install build dependencies
+        docker run --rm -v "$PWD:/workspace" alpine:latest sh -c "
           apk add --no-cache \
             gcc \
             musl-dev \
@@ -35,15 +34,13 @@ jobs:
             libidn2-static \
             zlib-static
           
-          # Download and extract msmtp
           cd /tmp
           wget -q https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
           tar xf msmtp-1.8.25.tar.xz
           cd msmtp-1.8.25
           
-          # Configure and build static
-          CFLAGS="-static -Os" \
-          LDFLAGS="-static -s" \
+          CFLAGS='-static -Os' \
+          LDFLAGS='-static -s' \
           ./configure \
             --prefix=/usr \
             --sysconfdir=/etc \
@@ -51,19 +48,17 @@ jobs:
             --disable-shared \
             --enable-static
           
-          make -j$(nproc)
+          make -j\$(nproc)
           strip --strip-all src/msmtp
           
-          # Verify binary
-          echo "=== Binary Info ==="
+          echo '=== Binary Info ==='
           ls -lh src/msmtp
           file src/msmtp
-          ldd src/msmtp 2>&1 || echo "✅ Static binary confirmed!"
+          ldd src/msmtp 2>&1 || echo 'Static binary confirmed!'
           ./src/msmtp --version
           
-          # Copy to workspace
           cp src/msmtp /workspace/msmtp-linux-static
-        '
+        "
     
     - name: Generate SHA256
       run: |
@@ -71,7 +66,7 @@ jobs:
         cat msmtp-linux-static.sha256
     
     - name: Upload binary as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: msmtp-linux-static
         path: |
@@ -88,16 +83,3 @@ jobs:
           msmtp-linux-static.sha256
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-**5️⃣ Click "Commit changes"** (verde, sus-dreapta)
-
-**6️⃣ Click "Commit changes"** din popup
-
----
-
-## ✅ Build-ul va Porni Automat!
-
-După commit, mergi la:
-```
-https://github.com/me-suzy/msmtp-builder/actions
