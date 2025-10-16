@@ -1,0 +1,86 @@
+name: Build Static msmtp Binary
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Permite rulare manuală
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          wget \
+          libgnutls28-dev \
+          libgsasl7-dev \
+          libidn2-dev \
+          gettext \
+          autoconf \
+          automake
+    
+    - name: Download msmtp source
+      run: |
+        cd /tmp
+        wget https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
+        tar xf msmtp-1.8.25.tar.xz
+        cd msmtp-1.8.25
+        ls -la
+    
+    - name: Build static msmtp
+      run: |
+        cd /tmp/msmtp-1.8.25
+        CFLAGS="-static -Os" \
+        LDFLAGS="-static -s" \
+        ./configure \
+          --prefix=/usr \
+          --sysconfdir=/etc \
+          --with-tls=gnutls \
+          --disable-shared \
+          --enable-static
+        make -j$(nproc)
+        strip --strip-all src/msmtp
+        
+    - name: Verify binary
+      run: |
+        cd /tmp/msmtp-1.8.25/src
+        ls -lh msmtp
+        file msmtp
+        ldd msmtp || echo "Static binary - no dynamic dependencies!"
+        ./msmtp --version
+    
+    - name: Prepare artifact
+      run: |
+        mkdir -p artifact
+        cp /tmp/msmtp-1.8.25/src/msmtp artifact/msmtp-linux-static
+        cd artifact
+        sha256sum msmtp-linux-static > msmtp-linux-static.sha256
+        ls -lh
+    
+    - name: Upload binary as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: msmtp-linux-static
+        path: |
+          artifact/msmtp-linux-static
+          artifact/msmtp-linux-static.sha256
+        retention-days: 90
+    
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifact/msmtp-linux-static
+          artifact/msmtp-linux-static.sha256
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
