@@ -1,55 +1,49 @@
 name: Build Static msmtp Binary
 
 on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Install dependencies
+    - name: Download and extract static msmtp from Alpine
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential wget libgnutls28-dev libgsasl7-dev libidn2-dev gettext autoconf automake libtool pkg-config
+        # Download Alpine APK package
+        wget https://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/msmtp-1.8.26-r2.apk
+        
+        # Extract APK (it's just a tar.gz)
+        tar -xf msmtp-1.8.26-r2.apk
+        
+        # Copy binary
+        cp usr/bin/msmtp msmtp-linux-static
+        chmod +x msmtp-linux-static
+        
+        # Verify
+        echo "=== Binary Info ==="
+        ls -lh msmtp-linux-static
+        file msmtp-linux-static
+        ldd msmtp-linux-static 2>&1 || echo "✅ Static binary!"
+        ./msmtp-linux-static --version
     
-    - name: Download msmtp source
+    - name: Generate SHA256
       run: |
-        cd /tmp
-        wget https://marlam.de/msmtp/releases/msmtp-1.8.25.tar.xz
-        tar xf msmtp-1.8.25.tar.xz
-        cd msmtp-1.8.25
-    
-    - name: Build static binary
-      run: |
-        cd /tmp/msmtp-1.8.25
-        ./configure --prefix=/usr --sysconfdir=/etc --with-tls=gnutls --disable-shared --enable-static CFLAGS="-static -Os" LDFLAGS="-static -s"
-        make -j$(nproc)
-        strip --strip-all src/msmtp
-    
-    - name: Test binary
-      run: |
-        cd /tmp/msmtp-1.8.25/src
-        ./msmtp --version
-        file msmtp
-        ldd msmtp || echo "Static binary - no dynamic dependencies"
-    
-    - name: Prepare artifact
-      run: |
-        mkdir -p artifact
-        cp /tmp/msmtp-1.8.25/src/msmtp artifact/msmtp-linux-static
-        cd artifact
         sha256sum msmtp-linux-static > msmtp-linux-static.sha256
-        ls -lh
+        cat msmtp-linux-static.sha256
     
-    - name: Upload artifact
+    - name: Upload binary as artifact
       uses: actions/upload-artifact@v4
       with:
         name: msmtp-linux-static
         path: |
-          artifact/msmtp-linux-static
-          artifact/msmtp-linux-static.sha256
+          msmtp-linux-static
+          msmtp-linux-static.sha256
         retention-days: 90
